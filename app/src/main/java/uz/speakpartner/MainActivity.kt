@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/"
-        val CHAT_MODELS = listOf("gemini-3.5-flash-lite", "gemini-3.8-flash")
+        val CHAT_MODELS = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite")
         val TTS_MODELS = listOf("gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts")
         const val VOICE = "Kore" // ayol ovozi
         const val SYSTEM_PROMPT =
