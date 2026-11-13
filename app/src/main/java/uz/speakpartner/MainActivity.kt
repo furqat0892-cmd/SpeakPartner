@@ -36,13 +36,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import kotlin.concurrent.thread
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import android.view.inputmethod.InputMethodManager
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/"
-        val CHAT_MODELS = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite")
-        val TTS_MODELS = listOf("gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts")
+        val CHAT_MODELS = listOf("gemini-3.5-flash-lite", "gemini-3.8-flash")
+        val TTS_MODELS = listOf("gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts")
         const val VOICE = "Kore" // ayol ovozi
         const val SYSTEM_PROMPT =
             "You are Emma, a warm, friendly young woman who teaches English through conversation only. " +
@@ -74,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     private var listening = false
     private var uzMode = false
     private lateinit var langBtn: Button
+    private lateinit var inputBox: EditText
 
     private val prefs by lazy { getSharedPreferences("sp", Context.MODE_PRIVATE) }
 
@@ -134,6 +138,25 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(8), dp(6), dp(8), dp(6))
         }
         root.addView(status, LinearLayout.LayoutParams(-1, -2))
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        inputBox = EditText(this).apply {
+            hint = "Yozib yuborish (English yoki o'zbekcha)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 3
+        }
+        val sendBtn = Button(this).apply {
+            text = "Send"
+            setOnClickListener { sendTyped() }
+        }
+        row.addView(inputBox, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(sendBtn, LinearLayout.LayoutParams(-2, -2))
+        root.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(24), 0, dp(24), 0)
+        })
 
         langBtn = Button(this).apply {
             text = "Men gapiraman: English  (o'zbekchaga o'tish)"
@@ -215,6 +238,16 @@ class MainActivity : AppCompatActivity() {
     private fun greet() {
         if (history.length() > 0) return
         converse("Salom Emma! Please greet me and start our English lesson.", showUser = false)
+    }
+
+    private fun sendTyped() {
+        val t = inputBox.text.toString().trim()
+        if (t.isEmpty() || busy) return
+        inputBox.setText("")
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(inputBox.windowToken, 0)
+        stopPlayback()
+        converse(t, showUser = true)
     }
 
     private fun onMic() {
@@ -380,9 +413,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun speak(segments: List<String>) {
-        val files = segments.mapIndexedNotNull { i, t -> ttsFile(t, i) }
-        if (files.isNotEmpty()) {
-            ui.post { playQueue(files, 0) }
+        val results = arrayOfNulls<File>(segments.size)
+        val workers = segments.mapIndexed { i, t -> thread { results[i] = ttsFile(t, i) } }
+        var played = false
+        for (i in segments.indices) {
+            workers[i].join()
+            val f = results[i] ?: continue
+            played = true
+            val latch = CountDownLatch(1)
+            ui.post { playFile(f) { latch.countDown() } }
+            latch.await(90, TimeUnit.SECONDS)
+        }
+        if (played) {
+            setStatus("Sizning navbatingiz! Mikrofonni bosing yoki yozing")
             return
         }
         // Zaxira: telefonning o'z ovozi
@@ -395,16 +438,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun playQueue(files: List<File>, i: Int) {
-        if (i >= files.size) {
-            setStatus("Sizning navbatingiz! Mikrofonni bosing")
-            return
-        }
+    private fun playFile(f: File, done: () -> Unit) {
         stopPlayback()
         player = MediaPlayer().apply {
-            setDataSource(files[i].absolutePath)
-            setOnCompletionListener { playQueue(files, i + 1) }
-            setOnErrorListener { _, _, _ -> playQueue(files, i + 1); true }
+            setDataSource(f.absolutePath)
+            setOnCompletionListener { done() }
+            setOnErrorListener { _, _, _ -> done(); true }
             setOnPreparedListener { start() }
             prepareAsync()
         }
