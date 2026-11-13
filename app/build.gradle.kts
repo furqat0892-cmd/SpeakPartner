@@ -15,10 +15,22 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("emma") {
+            storeFile = file("emma.keystore")
+            storePassword = "emma1234"
+            keyAlias = "emma"
+            keyPassword = "emma1234"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("emma")
+        }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("emma")
         }
     }
     compileOptions {
